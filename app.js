@@ -1,75 +1,86 @@
-const API_URL = 'http://localhost:3000'; // CHANGE THIS TO YOUR RENDER URL AFTER DEPLOYMENT!
+// CONFIGURATION
+// CHANGE THIS URL TO YOUR RENDER URL (e.g., https://cw-backend.onrender.com) WHEN DEPLOYING
+const API_URL = 'http://localhost:3000'; 
 
 new Vue({
     el: '#app',
     data: {
         lessons: [],
         cart: [],
-        showCart: false, // Toggles lessons/cart view (Requirement: Shopping Cart B)
-        sortBy: 'subject', 
+        showCart: false,
+        sortBy: 'topic', // Default sort attribute
         sortOrder: 'asc', // 'asc' or 'desc'
         searchQuery: '',
         checkout: {
             name: '',
             phone: ''
         },
-        orderMessage: null // For confirmation message
+        orderMessage: null
     },
     
-    // --- Lifecycle Hook ---
+    // Lifecycle Hook: Runs when the app is loaded
     mounted() {
-        // Automatically fetch lessons when the app starts
         this.fetchLessons();
     },
 
-    // --- Computed Properties (Sorting & Validation) ---
     computed: {
-        // Requirement: Sort functionality
+        // Sorts lessons based on current criteria
         sortedLessons() {
-            let filtered = this.lessons;
+            // Create a copy of the array to avoid mutating original data directly during sort
+            let sorted = [...this.lessons];
 
-            // Sort logic
-            return filtered.sort((a, b) => {
+            return sorted.sort((a, b) => {
                 let comparison = 0;
-                let valA = (typeof a[this.sortBy] === 'string') ? a[this.sortBy].toLowerCase() : a[this.sortBy];
-                let valB = (typeof b[this.sortBy] === 'string') ? b[this.sortBy].toLowerCase() : b[this.sortBy];
+                
+                // Get values to compare
+                let valA = a[this.sortBy];
+                let valB = b[this.sortBy];
+
+                // Handle string comparison (case-insensitive)
+                if (typeof valA === 'string') valA = valA.toLowerCase();
+                if (typeof valB === 'string') valB = valB.toLowerCase();
 
                 if (valA > valB) {
                     comparison = 1;
                 } else if (valA < valB) {
                     comparison = -1;
                 }
-                // Apply ascending or descending order
+                
+                // Flip result if descending
                 return this.sortOrder === 'asc' ? comparison : comparison * -1;
             });
         },
 
-        // Requirement: Shopping Cart A
+        // Checks if cart has items
         isCartEnabled() {
             return this.cart.length > 0;
         },
 
-        // Requirement: Checkout C (Validation using JavaScript/Regex)
+        // Calculates total price
+        cartTotal() {
+            return this.cart.reduce((total, item) => total + item.price, 0);
+        },
+
+        // Regex Validation: Name (Letters and spaces only)
         isNameValid() {
-            // Letters only (and spaces)
             return /^[a-zA-Z\s]+$/.test(this.checkout.name);
         },
+        
+        // Regex Validation: Phone (Numbers only)
         isPhoneValid() {
-            // Numbers only
             return /^\d+$/.test(this.checkout.phone);
         },
         
-        // Requirement: Checkout B (Button enabled when valid)
+        // Checkout Button State
         isCheckoutEnabled() {
             return this.isNameValid && this.isPhoneValid && this.cart.length > 0;
         }
     },
     
-    // --- Methods (Actions) ---
     methods: {
-        // --- Fetch Functions (Requirement: Fetch A, B, C) ---
-        
-        // Requirement: Fetch A (GET)
+        // --- API INTERACTIONS ---
+
+        // GET: Fetch all lessons
         async fetchLessons() {
             try {
                 const response = await fetch(`${API_URL}/lessons`);
@@ -80,44 +91,44 @@ new Vue({
             }
         },
 
-        // Requirement: Search as you type (Triggered by @input on search bar)
+        // GET: Search functionality (Search as you type)
         async handleSearch() {
-            // Clear message if searching
             this.orderMessage = null; 
             
             if (this.searchQuery.length > 0) {
                 try {
+                    // Calls the Search Endpoint
                     const response = await fetch(`${API_URL}/search?q=${this.searchQuery}`);
                     if (!response.ok) throw new Error('Search failed');
-                    this.lessons = await response.json(); // Display filtered results
+                    this.lessons = await response.json();
                 } catch (error) {
                     console.error("Error during search:", error);
                 }
             } else {
-                // If search query is empty, show all lessons
+                // Reset to full list if search is cleared
                 this.fetchLessons(); 
             }
         },
 
-        // Requirement: Fetch B (POST) and Fetch C (PUT)
+        // POST & PUT: Submit Order
         async submitOrder() {
+            // Prepare Order Data
             const orderPayload = {
                 name: this.checkout.name,
                 phone: this.checkout.phone,
-                // Requirement: lessonIDs and spaces for the order
+                // Map cart items to simple objects for the backend
                 lessons: this.cart.map(item => ({ 
                     id: item._id, 
                     topic: item.topic, 
                     price: item.price,
-                    // Since cart stores one entry per space, count how many of this lesson are in the cart
-                    quantity: this.cart.filter(c => c._id === item._id).length 
+                    quantity: 1 // Assuming 1 per entry in cart array
                 }))
             };
             
             this.orderMessage = { type: 'alert-warning', text: 'Submitting order...' };
 
             try {
-                // 1. POST the Order (Requirement: Fetch B)
+                // 1. Save Order (POST)
                 const postResponse = await fetch(`${API_URL}/orders`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -125,70 +136,71 @@ new Vue({
                 });
                 if (!postResponse.ok) throw new Error('Order submission failed');
 
-                // 2. PUT Update Lesson Spaces (Requirement: Fetch C)
-                // We only need to update the space on the lessons that were bought.
-                const updatePromises = this.lessons.map(lesson => {
-                    // Check if the current lesson is in the cart
-                    const boughtCount = this.cart.filter(item => item._id === lesson._id).length;
+                // 2. Update Lesson Spaces (PUT)
+                // Identify unique lessons in cart to update their spaces
+                const uniqueLessonIds = [...new Set(this.cart.map(item => item._id))];
+
+                const updatePromises = uniqueLessonIds.map(id => {
+                    // Find the lesson object in current state
+                    const lesson = this.lessons.find(l => l._id === id);
                     
-                    if (boughtCount > 0) {
-                        // Calculate the new space count
-                        const newSpace = lesson.space - boughtCount; 
-                        
-                        return fetch(`${API_URL}/lessons/${lesson._id}`, {
+                    // The 'space' in 'lesson' object is already decremented locally by addToCart
+                    // So we just send this new value to the backend
+                    if (lesson) {
+                        return fetch(`${API_URL}/lessons/${id}`, {
                             method: 'PUT',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ space: newSpace })
+                            body: JSON.stringify({ space: lesson.space })
                         });
                     }
-                    return Promise.resolve(); // Skip if lesson wasn't bought
                 });
 
                 await Promise.all(updatePromises);
 
-                // 3. Finalize
-                this.cart = []; // Clear cart
-                this.checkout = { name: '', phone: '' }; // Clear form
-                this.fetchLessons(); // Refresh lesson list with new spaces
-                this.showCart = false; // Go back to lessons page
+                // 3. Reset App State
+                this.cart = [];
+                this.checkout = { name: '', phone: '' };
+                this.showCart = false; // Return to lessons page
+                this.orderMessage = { type: 'alert-success', text: '✅ Order submitted successfully!' };
                 
-                // Requirement: Checkout D (Confirmation message)
-                this.orderMessage = { type: 'alert-success', text: '✅ Order submitted successfully and spaces updated!' };
+                // Refresh data to ensure sync with server
+                // setTimeout ensures the alert is seen before refresh might clear it contextually
+                setTimeout(() => { this.orderMessage = null; }, 3000); 
 
             } catch (error) {
                 console.error("Error submitting order:", error);
-                this.orderMessage = { type: 'alert-danger', text: '❌ An error occurred during checkout.' };
+                this.orderMessage = { type: 'alert-danger', text: '❌ An error occurred. Please try again.' };
             }
         },
 
-        // --- Cart Functions ---
+        // --- CART MANAGEMENT ---
 
-        // Requirement: Add to Cart (C)
         addToCart(lesson) {
+            // Validation: Prevent adding if stock is 0
             if (lesson.space > 0) {
-                this.cart.push(lesson); // Add one instance to cart
-                lesson.space -= 1; // Reduce available space
+                // Push a copy of the lesson to cart
+                this.cart.push(lesson);
+                // Decrement local space count immediately for UI reactivity
+                lesson.space--; 
             }
         },
         
-        // Requirement: Shopping Cart D (Remove)
         removeFromCart(item, index) {
-            // Find the lesson in the main list by its _id
-            const lessonIndex = this.lessons.findIndex(l => l._id === item._id);
+            // Find the lesson in the main lessons array to return the space
+            const lessonInStore = this.lessons.find(l => l._id === item._id);
             
-            if (lessonIndex !== -1) {
-                this.lessons[lessonIndex].space += 1; // Add space back to lesson list
+            if (lessonInStore) {
+                lessonInStore.space++; // Return space to available stock
             }
             
-            this.cart.splice(index, 1); // Remove from cart
-            
-            // Clear message if cart becomes empty
+            this.cart.splice(index, 1); // Remove from cart array
+
             if (this.cart.length === 0) {
-                this.orderMessage = null;
+                this.showCart = false; // Auto-close cart if empty (optional UX choice)
             }
         },
 
-        // Helper to construct image URL
+        // Helper: Construct Image URL
         getLessonImageUrl(imageName) {
             return `${API_URL}/images/${imageName}`;
         }
