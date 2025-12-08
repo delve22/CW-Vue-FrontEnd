@@ -1,6 +1,4 @@
-// CONFIGURATION
-// CHANGE THIS URL TO YOUR RENDER URL (e.g., https://cw-backend.onrender.com) WHEN DEPLOYING
-const API_URL = 'http://localhost:3000'; 
+const API_URL = 'https://cw-backend-yourname.onrender.com';
 
 new Vue({
     el: '#app',
