@@ -1,4 +1,4 @@
-const API_URL = 'https://cw-express-backend.onrender.com/lessons';
+const API_URL = 'https://cw-express-backend.onrender.com';
 
 new Vue({
     el: '#app',
